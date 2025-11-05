@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # PHP Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:80"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=hacksim
+      - DB_USER=hacksim_user
+      - DB_PASSWORD=hacksim_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - APP_ENV=development
+    depends_on:
+      - mysql
+      - redis
+    volumes:
+      - ./backend:/var/www/html
+      - ./uploads:/var/www/html/uploads
+    networks:
+      - hacksim-network
+    restart: unless-stopped
+
+  # Python Challenge Engine
+  challenge-engine:
+    build:
+      context: ./challenge_engine
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SANDBOX_MODE=safe
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - ./challenge_engine:/app
+      - ./challenges:/app/challenges
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+    networks:
+      - hacksim-network
+    restart: unless-stopped
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=hacksim
+      - MYSQL_USER=hacksim_user
+      - MYSQL_PASSWORD=hacksim_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - hacksim-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hacksim-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - backend
+      - challenge-engine
+    networks:
+      - hacksim-network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  hacksim-network:
+    driver: bridge
