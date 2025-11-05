@@ -1,5 +1,8 @@
 # HackSim - Educational CTF Platform
 
+
+# Being developed rn chat!!! :)
+
 A comprehensive, story driven desktop CTF platform for learning cybersecurity through gamified challenges.
 
 ## Project Structure
